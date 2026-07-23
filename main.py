@@ -7062,8 +7062,8 @@ td { background: #14141f; padding: 8px; border: 1px solid #2d2d44; }
             os.makedirs(backup_dir, exist_ok=True, mode=0o755)
             try:
                 if os.stat(backup_dir).st_uid == 0 and os.geteuid() != 0:
-                    os.system(f"sudo chown {os.getlogin()} '{backup_dir}' 2>/dev/null")
-                    os.system(f"sudo chmod 755 '{backup_dir}' 2>/dev/null")
+                    os.system(f"sudo chown -R {os.getlogin()} '{backup_dir}' 2>/dev/null")
+                    os.system(f"sudo chmod -R 755 '{backup_dir}' 2>/dev/null")
             except:
                 pass
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -7160,13 +7160,28 @@ td { background: #14141f; padding: 8px; border: 1px solid #2d2d44; }
                 'wireless_scan_cache': self.wireless_scan_cache,
             }
             filepath = os.path.join(data_dir, "known_devices.json")
-            # Fix permissions if directory is owned by root
+            # Fix permissions if directory or files are owned by root
             try:
                 if os.stat(data_dir).st_uid == 0 and os.geteuid() != 0:
-                    os.system(f"sudo chown {os.getlogin()} '{data_dir}' 2>/dev/null")
-                    os.system(f"sudo chmod 755 '{data_dir}' 2>/dev/null")
+                    os.system(f"sudo chown -R {os.getlogin()} '{data_dir}' 2>/dev/null")
+                    os.system(f"sudo chmod -R 755 '{data_dir}' 2>/dev/null")
             except:
                 pass
+            # Handle existing root-owned known_devices.json
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'a'):
+                        pass
+                except PermissionError:
+                    try:
+                        os.remove(filepath)
+                    except:
+                        os.system(f"sudo chmod 666 '{filepath}' 2>/dev/null")
+                        if os.path.exists(filepath):
+                            try:
+                                os.remove(filepath)
+                            except:
+                                pass
             with open(filepath, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
@@ -7179,11 +7194,19 @@ td { background: #14141f; padding: 8px; border: 1px solid #2d2d44; }
         try:
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir, mode=0o755)
-            # Test write access
+            # Test write access (directory + existing file)
             test_file = os.path.join(data_dir, ".write_test")
             with open(test_file, 'w') as f:
                 f.write("test")
             os.remove(test_file)
+            # Also check if existing known_devices.json is writable
+            json_file = os.path.join(data_dir, "known_devices.json")
+            if os.path.exists(json_file):
+                try:
+                    with open(json_file, 'a'):
+                        pass
+                except PermissionError:
+                    raise PermissionError(f"Cannot write {json_file}")
             self.log(f"Data directory: {data_dir}", "INFO")
             return data_dir
         except Exception as e:

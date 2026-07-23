@@ -150,6 +150,7 @@ class NetworkAnalyzerPro:
         self.wireless_scan_cache = {}  # {bssid: {ssid, bssid, rssi, channel, first_seen, last_seen, approved}}
         self.infrastructure_monitoring = False
         self.topology_last_verified = None
+        self._last_save_error = None
 
         # Security
         self.cve_db = {}
@@ -726,11 +727,19 @@ class NetworkAnalyzerPro:
                   font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
         self.network_combo = ttk.Combobox(range_frame, textvariable=self.network_ip,
                                           width=25, font=('Consolas', 11),
-                                          state='readonly', style='Pro.TEntry')
+                                          state='normal', style='Pro.TEntry')
         self.network_combo['values'] = self.available_networks
         self.network_combo.pack(side=tk.LEFT, padx=5)
         ttk.Button(range_frame, text="↻", command=self.refresh_networks,
                   style='Small.TButton', width=3).pack(side=tk.LEFT, padx=2)
+        # Add a validate button for custom CIDR
+        self.validate_btn = ttk.Button(range_frame, text="✓ Validate",
+                                       command=self._validate_cidr_input,
+                                       style='Small.TButton')
+        self.validate_btn.pack(side=tk.LEFT, padx=2)
+        self.cidr_status = ttk.Label(range_frame, text="", style='Pro.TLabel',
+                                     font=('Consolas', 9))
+        self.cidr_status.pack(side=tk.LEFT, padx=5)
 
         mode_frame = ttk.Frame(inner, style='Pro.TFrame')
         mode_frame.pack(fill=tk.X, pady=8)
@@ -4178,18 +4187,68 @@ class NetworkAnalyzerPro:
             self.network_ip.set(self.available_networks[0])
         self.log(f"Networks refreshed: {', '.join(self.available_networks)}", "INFO")
 
+    def _validate_cidr_input(self):
+        """Validate the CIDR input and provide feedback"""
+        raw = self.network_ip.get().strip()
+        try:
+            network = ipaddress.IPv4Network(raw, strict=False)
+            self.cidr_status.config(text=f"✅ {network.network_address}/{network.prefixlen} ({network.num_addresses} hosts)",
+                                    fg=self.colors['success'])
+            # Update the combo value to the normalized form
+            self.network_ip.set(f"{network.network_address}/{network.prefixlen}")
+            return network
+        except ValueError as e:
+            self.cidr_status.config(text=f"❌ {e}", fg=self.colors['danger'])
+            return None
+        except Exception as e:
+            self.cidr_status.config(text=f"❌ Invalid: {e}", fg=self.colors['danger'])
+            return None
+
     def _get_scan_targets(self):
-        """Return list of (base_ip, network_cidr) tuples for all discovered networks (deduplicated)"""
-        seen_bases = set()
+        """Return list of valid CIDR network strings using proper parsing"""
+        seen = set()
         targets = []
-        for network in self.available_networks:
-            base = network.split('/')[0]
-            parts = base.split('.')
-            base_ip = '.'.join(parts[:3])
-            if base_ip not in seen_bases:
-                seen_bases.add(base_ip)
-                targets.append((base_ip, network))
+        selected = self.network_ip.get().strip()
+        try:
+            net = ipaddress.IPv4Network(selected, strict=False)
+            key = str(net.network_address)
+            if key not in seen:
+                seen.add(key)
+                targets.append(str(net))
+        except:
+            pass
+        for net_str in self.available_networks:
+            try:
+                net = ipaddress.IPv4Network(net_str, strict=False)
+                key = str(net.network_address)
+                if key not in seen:
+                    seen.add(key)
+                    targets.append(str(net))
+            except:
+                pass
+        if not targets:
+            try:
+                net = ipaddress.IPv4Network("192.168.1.0/24", strict=False)
+                targets.append(str(net))
+            except:
+                pass
         return targets
+
+    def _ips_from_targets(self, targets):
+        """Convert CIDR strings to deduplicated IP list"""
+        seen = set()
+        ips = []
+        for net_str in targets:
+            try:
+                net = ipaddress.IPv4Network(net_str, strict=False)
+                for host in net:
+                    s = str(host)
+                    if s not in seen:
+                        seen.add(s)
+                        ips.append(s)
+            except:
+                pass
+        return ips
 
     def quick_scan(self):
         """Quick scan"""
@@ -4207,15 +4266,11 @@ class NetworkAnalyzerPro:
             if not targets:
                 return
 
-            # Build all IPs (deduplicated)
-            all_ips = []
-            seen_ips = set()
-            for base_ip, net in targets:
-                for i in range(1, 255):
-                    ip = f"{base_ip}.{i}"
-                    if ip not in seen_ips:
-                        seen_ips.add(ip)
-                        all_ips.append(ip)
+            # Build all IPs using proper CIDR parsing
+            all_ips = self._ips_from_targets(targets)
+            if not all_ips:
+                self.log("No IPs to scan", "WARNING")
+                return
 
             self.scan_progress['maximum'] = len(all_ips)
             devices_found = []
@@ -4334,14 +4389,10 @@ class NetworkAnalyzerPro:
             if not targets:
                 return
 
-            all_ips = []
-            seen_ips = set()
-            for base_ip, net in targets:
-                for i in range(1, 255):
-                    ip = f"{base_ip}.{i}"
-                    if ip not in seen_ips:
-                        seen_ips.add(ip)
-                        all_ips.append(ip)
+            all_ips = self._ips_from_targets(targets)
+            if not all_ips:
+                self.log("No IPs to scan", "WARNING")
+                return
 
             self.scan_progress['maximum'] = len(all_ips)
             devices_found = []
@@ -5644,15 +5695,11 @@ class NetworkAnalyzerPro:
                 self.log("No networks to scan", "WARNING")
                 return
 
-            # Build list of all IPs across all networks (deduplicated)
-            all_ips = []
-            seen_ips = set()
-            for base_ip, net in targets:
-                for i in range(1, 255):
-                    ip = f"{base_ip}.{i}"
-                    if ip not in seen_ips:
-                        seen_ips.add(ip)
-                        all_ips.append(ip)
+            # Build list of all IPs across all networks using proper CIDR parsing
+            all_ips = self._ips_from_targets(targets)
+            if not all_ips:
+                self.log("No IPs to scan", "WARNING")
+                return
 
             total_ips = len(all_ips)
             self.scan_progress['maximum'] = total_ips
@@ -7060,10 +7107,10 @@ td { background: #14141f; padding: 8px; border: 1px solid #2d2d44; }
         try:
             backup_dir = os.path.expanduser("~/network_analyzer_backup")
             os.makedirs(backup_dir, exist_ok=True, mode=0o755)
+            # Check for root-owned backup directory and report instead of sudo
             try:
                 if os.stat(backup_dir).st_uid == 0 and os.geteuid() != 0:
-                    os.system(f"sudo chown -R {os.getlogin()} '{backup_dir}' 2>/dev/null")
-                    os.system(f"sudo chmod -R 755 '{backup_dir}' 2>/dev/null")
+                    self.log(f"Backup dir {backup_dir} is root-owned; run: sudo chown {os.getlogin()} '{backup_dir}'", "ERROR")
             except:
                 pass
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -7140,96 +7187,157 @@ td { background: #14141f; padding: 8px; border: 1px solid #2d2d44; }
             self.log(f"Data load error: {e}", "WARNING")
 
     def save_data(self):
-        """Save data including parental control settings"""
+        """Save data atomically with permission safety and rate-limited error logging.
+        
+        Writes to a temporary file, flushes, fsyncs, then atomically replaces
+        the destination. Never truncates the existing file before a successful write.
+        Preserves the last valid known_devices.json on failure.
+        Suppresses duplicate permission errors to prevent log flooding.
+        """
+        from pathlib import Path as _Path
+        
+        data_dir_s = getattr(self, 'data_dir', None)
+        if not data_dir_s:
+            data_dir_s = str(_Path.home() / "network_analyzer_data")
+        data_dir = _Path(data_dir_s)
+
+        # Use getattr for _last_save_error in case __init__ hasn't set it yet
+        last_err = getattr(self, '_last_save_error', None)
+
+        # Build payload (must match load_data expectations)
+        payload = {
+            'known_devices': self.known_devices,
+            'parental_settings': self.parental_settings,
+            'parental_profiles': self.parental_profiles,
+            'parental_blocked_count': self.parental_blocked_count,
+            'content_blocklist': list(self.content_blocklist),
+            'content_allowlist': list(self.content_allowlist),
+            'parental_last_reset': self.parental_last_reset,
+            'infrastructure': self.infrastructure,
+            'rogue_alerts': list(self.rogue_alerts),
+            'device_sessions': self.device_sessions,
+            'wireless_scan_cache': self.wireless_scan_cache,
+        }
+
+        dest = data_dir / "known_devices.json"
+        tmp = data_dir / "known_devices.json.tmp"
+
         try:
-            data_dir = getattr(self, 'data_dir', None)
-            if not data_dir:
-                data_dir = os.path.expanduser("~/network_analyzer_data")
-            os.makedirs(data_dir, exist_ok=True, mode=0o755)
-            data = {
-                'known_devices': self.known_devices,
-                'parental_settings': self.parental_settings,
-                'parental_profiles': self.parental_profiles,
-                'parental_blocked_count': self.parental_blocked_count,
-                'content_blocklist': list(self.content_blocklist),
-                'content_allowlist': list(self.content_allowlist),
-                'parental_last_reset': self.parental_last_reset,
-                'infrastructure': self.infrastructure,
-                'rogue_alerts': list(self.rogue_alerts),
-                'device_sessions': self.device_sessions,
-                'wireless_scan_cache': self.wireless_scan_cache,
-            }
-            filepath = os.path.join(data_dir, "known_devices.json")
-            # Fix permissions if directory or files are owned by root
-            try:
-                if os.stat(data_dir).st_uid == 0 and os.geteuid() != 0:
-                    os.system(f"sudo chown -R {os.getlogin()} '{data_dir}' 2>/dev/null")
-                    os.system(f"sudo chmod -R 755 '{data_dir}' 2>/dev/null")
-            except:
-                pass
-            # Handle existing root-owned known_devices.json
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'a'):
-                        pass
-                except PermissionError:
-                    try:
-                        os.remove(filepath)
-                    except:
-                        os.system(f"sudo chmod 666 '{filepath}' 2>/dev/null")
-                        if os.path.exists(filepath):
-                            try:
-                                os.remove(filepath)
-                            except:
-                                pass
-            with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
+            # Step 1: Serialize to temporary file
+            tmp_bytes = json.dumps(payload, indent=2, ensure_ascii=False).encode('utf-8')
+            tmp.write_bytes(tmp_bytes)
+            # Step 2: Flush and fsync the temporary file
+            with tmp.open('ab') as f:
+                f.flush()
+                os.fsync(f.fileno())
+            # Step 3: Atomic replace — only replaces on success
+            tmp.replace(dest)
+            self._last_save_error = None
+        except PermissionError as e:
+            uid = os.geteuid()
+            user = os.getlogin()
+            st = dest.stat() if dest.exists() else None
+            owner_info = f" (uid {st.st_uid})" if st else ""
+            err_key = f"perm:{dest}"
+            if err_key != last_err:
+                msg = (
+                    f"Permission denied saving {dest}. "
+                    f"Current user: {user} (uid {uid}). "
+                    f"Destination owner{owner_info}. "
+                    f"Repair with: sudo chown {user} '{dest}' && sudo chown {user} '{data_dir}'"
+                )
+                self.log(msg, "ERROR")
+                self._last_save_error = err_key
         except Exception as e:
-            self.log(f"Data save error: {e}", "WARNING")
+            err_key = f"save:{e}"
+            if err_key != last_err:
+                self.log(f"Data save error: {e}", "WARNING")
+                self._last_save_error = err_key
+        finally:
+            # Clean up temp file if it still exists (failed serialization edge case)
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
 
     def ensure_data_directory(self):
-        """Create data directory with proper permissions and fallbacks"""
-        # Primary location
-        data_dir = os.path.expanduser("~/network_analyzer_data")
-        try:
-            if not os.path.exists(data_dir):
-                os.makedirs(data_dir, mode=0o755)
-            # Test write access (directory + existing file)
-            test_file = os.path.join(data_dir, ".write_test")
-            with open(test_file, 'w') as f:
-                f.write("test")
-            os.remove(test_file)
-            # Also check if existing known_devices.json is writable
-            json_file = os.path.join(data_dir, "known_devices.json")
-            if os.path.exists(json_file):
-                try:
-                    with open(json_file, 'a'):
-                        pass
-                except PermissionError:
-                    raise PermissionError(f"Cannot write {json_file}")
-            self.log(f"Data directory: {data_dir}", "INFO")
-            return data_dir
-        except Exception as e:
-            self.log(f"Permission error in {data_dir}: {e}", "WARNING")
-            # Fallback to Documents folder
-            fallback_dir = os.path.expanduser("~/Documents/network_analyzer_data")
+        """Create data directory with proper permissions and fallbacks.
+        
+        Returns a pathlib.Path that is writable by the current user.
+        Falls back through three locations on failure.
+        """
+        from pathlib import Path as _Path
+        
+        candidates = [
+            _Path.home() / "network_analyzer_data",
+            _Path.home() / "Documents" / "network_analyzer_data",
+            _Path("/tmp") / "network_analyzer_data",
+        ]
+        errors = []
+        uid = os.geteuid()
+        user = os.getlogin()
+
+        for data_dir in candidates:
             try:
-                if not os.path.exists(fallback_dir):
-                    os.makedirs(fallback_dir, mode=0o755)
-                # Test write access
-                test_file = os.path.join(fallback_dir, ".write_test")
-                with open(test_file, 'w') as f:
-                    f.write("test")
-                os.remove(test_file)
-                self.log(f"Using fallback directory: {fallback_dir}", "INFO")
-                return fallback_dir
-            except:
-                self.log("CRITICAL: Cannot create data directory in home or Documents", "ERROR")
-                # Use /tmp as last resort
-                tmp_dir = "/tmp/network_analyzer_data"
-                os.makedirs(tmp_dir, exist_ok=True)
-                self.log(f"Using temp directory: {tmp_dir}", "WARNING")
-                return tmp_dir
+                # Must not be a symlink (safety)
+                if data_dir.is_symlink():
+                    errors.append(f"{data_dir} is a symlink — rejecting for safety")
+                    continue
+                if data_dir.exists():
+                    if not data_dir.is_dir():
+                        errors.append(f"{data_dir} exists but is not a directory")
+                        continue
+                    st = data_dir.stat()
+                    owner = "root" if st.st_uid == 0 else str(st.st_uid)
+                    if st.st_uid == 0 and uid != 0:
+                        msg = (
+                            f"{data_dir} is owned by root (uid 0); "
+                            f"current user is {user} (uid {uid}). "
+                            f"Re-run once as 'sudo chown -R {user} {data_dir}' "
+                            f"to repair, or use a different directory."
+                        )
+                        errors.append(msg)
+                        continue
+                    # Test write access
+                    test = data_dir / ".write_test"
+                    try:
+                        test.write_text("test", encoding="utf-8")
+                        test.unlink()
+                    except PermissionError:
+                        errors.append(f"{data_dir} exists but current user cannot write to it")
+                        continue
+                else:
+                    # Create with current uid
+                    data_dir.mkdir(mode=0o755, parents=True)
+                # Check known_devices.json if it exists
+                json_file = data_dir / "known_devices.json"
+                if json_file.exists():
+                    try:
+                        json_file.open('a').close()
+                    except PermissionError:
+                        errors.append(
+                            f"{json_file} exists but is not writable by current user. "
+                            f"Run: sudo chown {user} {json_file}"
+                        )
+                        continue
+                self.log(f"📁 Data directory: {data_dir}", "INFO")
+                return str(data_dir)
+            except PermissionError:
+                errors.append(f"Permission denied creating {data_dir}")
+                continue
+            except Exception as e:
+                errors.append(f"{data_dir}: {e}")
+                continue
+
+        # All candidates failed
+        full_msg = "; ".join(errors)
+        self.log(f"❌ Cannot create data directory: {full_msg}", "ERROR")
+        # Last resort: /tmp with no further fallback
+        tmp = _Path("/tmp") / "network_analyzer_data"
+        tmp.mkdir(mode=0o755, exist_ok=True)
+        self.log(f"⚠️ Using /tmp fallback: {tmp}", "WARNING")
+        return str(tmp)
 
     def show_about(self):
         """About"""

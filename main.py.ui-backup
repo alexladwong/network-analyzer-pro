@@ -235,16 +235,6 @@ class NetworkAnalyzerPro:
         style.map('Pro.TEntry',
                   fieldbackground=[('focus', c['accent'])])
 
-        # Radiobutton for scan modes
-        style.configure('Pro.TRadiobutton', background=c['bg'],
-                        foreground=c['text'], font=('Arial', 10),
-                        indicatorbackground=c['secondary'],
-                        indicatorforeground=c['highlight'])
-        style.map('Pro.TRadiobutton',
-                  background=[('active', c['accent'])],
-                  foreground=[('selected', c['text']), ('active', 'white')],
-                  indicatorbackground=[('selected', c['highlight']), ('active', c['accent2'])])
-
     def _create_card(self, parent, title, **kwargs):
         """Create a professional card container with accent header bar"""
         expand = kwargs.get('expand', False)
@@ -252,7 +242,7 @@ class NetworkAnalyzerPro:
         pady = kwargs.get('pady', (0, 8))
         side = kwargs.get('side', tk.TOP)
         padx = kwargs.get('padx', 0)
-        height = kwargs.get('header_height', 28)
+        height = kwargs.get('header_height', 32)
 
         card = tk.Frame(parent, bg=self.colors['secondary'],
                         highlightbackground=self.colors['accent2'],
@@ -262,7 +252,7 @@ class NetworkAnalyzerPro:
         header_bg = kwargs.get('header_bg', self.colors['accent'])
         tk.Frame(card, bg=header_bg, height=height).pack(fill=tk.X)
         tk.Label(card, text=f"  {title}", bg=header_bg,
-                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
+                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(4, 0), padx=8)
         return card
 
     def _brighten(self, hex_color, amount=30):
@@ -290,79 +280,6 @@ class NetworkAnalyzerPro:
             return False
         except AttributeError:
             return True
-
-    def _restart_with_sudo(self):
-        """Restart the application with sudo privileges in a new terminal"""
-        if platform.system() == 'Windows':
-            messagebox.showinfo("Elevate Required",
-                                "Run as Administrator to enable all features.\n\n"
-                                "Right-click the terminal and select 'Run as administrator'.")
-            return
-        try:
-            if os.geteuid() == 0:
-                messagebox.showinfo("Already Elevated",
-                                    "Already running with root privileges.")
-                return
-        except AttributeError:
-            return
-
-        python = sys.executable
-        script = os.path.abspath(__file__)
-        reply = messagebox.askyesno("Elevate Privileges",
-                                    "Restart with sudo to enable:\n"
-                                    "• Full ARP network scans\n"
-                                    "• Packet capture\n"
-                                    "• ARP spoofing detection\n"
-                                    "• Port scan detection\n"
-                                    "• Traceroute\n\n"
-                                    "Restart now?\n\n"
-                                    "A Terminal window will open for password entry.")
-        if not reply:
-            return
-
-        self.log("Restarting with sudo in new terminal...", "INFO")
-        script_dir = os.path.dirname(script)
-        args = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else ''
-
-        try:
-            if platform.system() == 'Darwin':
-                # Write a temporary shell script so quoting is trivial
-                import tempfile
-                tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False)
-                tmp.write('#!/bin/bash\n')
-                tmp.write(f'cd "{script_dir}"\n')
-                tmp.write(f'sudo "{python}" "{script}" {args}\n')
-                tmp.write(f'rm -- "$0"\n')
-                tmp.close()
-                os.chmod(tmp.name, 0o755)
-                subprocess.Popen(['open', '-a', 'Terminal', tmp.name])
-            else:
-                # Linux: try common terminal emulators
-                launch = f'cd "{script_dir}" && sudo "{python}" "{script}" {args}'
-                terminals = [('x-terminal-emulator', '-e', 'bash', '-c'),
-                             ('xterm', '-e', 'bash', '-c'),
-                             ('gnome-terminal', '--', 'bash', '-c'),
-                             ('konsole', '--hold', '-e', 'bash', '-c'),
-                             ('xfce4-terminal', '-e', 'bash', '-c')]
-                launched = False
-                for term_cmd in terminals:
-                    try:
-                        subprocess.Popen(list(term_cmd) + [launch])
-                        launched = True
-                        break
-                    except FileNotFoundError:
-                        continue
-                if not launched:
-                    messagebox.showerror("Terminal Not Found",
-                                         "Could not find a terminal emulator.\n"
-                                         "Please run manually:\n\n"
-                                         f"sudo {python} {script}")
-                    return
-        except Exception as e:
-            self.log(f"Sudo restart error: {e}", "ERROR")
-            messagebox.showerror("Error",
-                                 f"Failed to launch terminal: {e}\n\n"
-                                 f"Please run manually:\nsudo {python} {script}")
 
     def create_widgets(self):
         """Create all UI widgets"""
@@ -474,34 +391,14 @@ class NetworkAnalyzerPro:
                                       font=('Arial', 10, 'bold'))
         self.status_alerts.pack(side=tk.LEFT, padx=(0, 6), pady=3)
 
-        # ⚡ Sudo Elevate button (non-Windows, non-root only)
-        if platform.system() != 'Windows':
-            try:
-                need_sudo = os.geteuid() != 0
-            except AttributeError:
-                need_sudo = False
-            if need_sudo:
-                sudo_badge = tk.Frame(stats_frame, bg=self.colors['danger'],
-                                      highlightbackground=self.colors['danger'],
-                                      highlightthickness=1, bd=0)
-                sudo_badge.pack(side=tk.LEFT, padx=3)
-                sudo_btn = tk.Label(sudo_badge, text=" 🔒 Sudo  ",
-                                    bg=self.colors['danger'], fg='white',
-                                    font=('Consolas', 9, 'bold'),
-                                    cursor='hand2')
-                sudo_btn.pack(padx=6, pady=3)
-                sudo_btn.bind('<Button-1>', lambda e: self._restart_with_sudo())
-                sudo_btn.bind('<Enter>', lambda e: sudo_btn.config(bg=self._brighten(self.colors['danger'], 30)))
-                sudo_btn.bind('<Leave>', lambda e: sudo_btn.config(bg=self.colors['danger']))
-
     def create_dashboard_tab(self):
-        """Dashboard with structured professional card layout"""
+        """Dashboard with balanced responsive card layout"""
         tab = ttk.Frame(self.notebook, style='Pro.TFrame')
         self.notebook.add(tab, text="  Dashboard  ")
 
         # Top row: 3 columns using grid for proportional widths
         top_row = ttk.Frame(tab, style='Pro.TFrame')
-        top_row.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        top_row.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         top_row.columnconfigure(0, weight=3, uniform='dash')
         top_row.columnconfigure(1, weight=3, uniform='dash')
@@ -509,11 +406,11 @@ class NetworkAnalyzerPro:
         top_row.rowconfigure(0, weight=1)
 
         col1 = ttk.Frame(top_row, style='Pro.TFrame')
-        col1.grid(row=0, column=0, sticky='nsew', padx=(0, 4))
+        col1.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         col2 = ttk.Frame(top_row, style='Pro.TFrame')
-        col2.grid(row=0, column=1, sticky='nsew', padx=4)
+        col2.grid(row=0, column=1, sticky='nsew', padx=5)
         col3 = ttk.Frame(top_row, style='Pro.TFrame')
-        col3.grid(row=0, column=2, sticky='nsew', padx=(4, 0))
+        col3.grid(row=0, column=2, sticky='nsew', padx=(5, 0))
 
         # === Network Status Card ===
         summary_card = tk.Frame(col1, bg=self.colors['secondary'],
@@ -521,34 +418,14 @@ class NetworkAnalyzerPro:
                                 highlightthickness=1, bd=0)
         summary_card.pack(fill=tk.BOTH, expand=True)
 
-        tk.Frame(summary_card, bg=self.colors['accent'], height=28).pack(fill=tk.X)
-        tk.Label(summary_card, text="  🌐 Network Status", bg=self.colors['accent'],
-                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
+        tk.Frame(summary_card, bg=self.colors['accent'], height=32).pack(fill=tk.X)
+        tk.Label(summary_card, text="  Network Status", bg=self.colors['accent'],
+                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(4, 0), padx=8)
 
-        # Structured Network Status rows
-        net_inner = tk.Frame(summary_card, bg=self.colors['secondary'])
-        net_inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=8)
-
-        net_fields = [
-            ("Local IP", "stat_local_ip"),
-            ("Gateway", "stat_gateway_ip"),
-            ("GW Host", "stat_gateway_host"),
-            ("Devices", "stat_devices"),
-            ("Scapy", "stat_scapy"),
-            ("Updated", "stat_updated"),
-        ]
-        for idx, (label, attr) in enumerate(net_fields):
-            row = tk.Frame(net_inner, bg=self.colors['secondary'])
-            row.pack(fill=tk.X, pady=3)
-            lb = tk.Label(row, text=label, bg=self.colors['secondary'],
-                          fg=self.colors['text_dim'], font=('Arial', 10),
-                          width=10, anchor='w')
-            lb.pack(side=tk.LEFT)
-            vl = tk.Label(row, text="-", bg=self.colors['secondary'],
-                          fg=self.colors['text'], font=('Consolas', 10),
-                          anchor='w')
-            vl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            setattr(self, attr, vl)
+        self.summary_text = tk.Text(summary_card, bg=self.colors['secondary'],
+                                    fg=self.colors['text'], font=('Consolas', 10), wrap=tk.WORD,
+                                    bd=0, highlightthickness=0, padx=12, pady=8)
+        self.summary_text.pack(fill=tk.BOTH, expand=True)
 
         # === System Resources Card ===
         sys_card = tk.Frame(col2, bg=self.colors['secondary'],
@@ -556,50 +433,32 @@ class NetworkAnalyzerPro:
                             highlightthickness=1, bd=0)
         sys_card.pack(fill=tk.BOTH, expand=True)
 
-        tk.Frame(sys_card, bg=self.colors['accent'], height=28).pack(fill=tk.X)
-        tk.Label(sys_card, text="  💻 System Resources", bg=self.colors['accent'],
-                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
+        tk.Frame(sys_card, bg=self.colors['accent'], height=32).pack(fill=tk.X)
+        tk.Label(sys_card, text="  System Resources", bg=self.colors['accent'],
+                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(4, 0), padx=8)
 
-        # Structured System Resources rows
-        sys_inner = tk.Frame(sys_card, bg=self.colors['secondary'])
-        sys_inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=8)
-
-        sys_fields = [
-            ("CPU", "sys_cpu"),
-            ("Memory", "sys_memory"),
-            ("Disk", "sys_disk"),
-            ("Network", "sys_net"),
-        ]
-        for idx, (label, attr) in enumerate(sys_fields):
-            row = tk.Frame(sys_inner, bg=self.colors['secondary'])
-            row.pack(fill=tk.X, pady=3)
-            lb = tk.Label(row, text=label, bg=self.colors['secondary'],
-                          fg=self.colors['text_dim'], font=('Arial', 10),
-                          width=10, anchor='w')
-            lb.pack(side=tk.LEFT)
-            vl = tk.Label(row, text="-", bg=self.colors['secondary'],
-                          fg=self.colors['text'], font=('Consolas', 10),
-                          anchor='w')
-            vl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            setattr(self, attr, vl)
+        self.sys_status = tk.Text(sys_card, bg=self.colors['secondary'],
+                                  fg=self.colors['text'], font=('Consolas', 9),
+                                  bd=0, highlightthickness=0, padx=12, pady=8)
+        self.sys_status.pack(fill=tk.BOTH, expand=True)
 
         # === Right column: Quick Actions + Recent Activity ===
         actions_card = tk.Frame(col3, bg=self.colors['secondary'],
                                 highlightbackground=self.colors['accent2'],
                                 highlightthickness=1, bd=0)
-        actions_card.pack(fill=tk.X, pady=(0, 6))
+        actions_card.pack(fill=tk.X, pady=(0, 8))
 
-        tk.Frame(actions_card, bg=self.colors['accent'], height=28).pack(fill=tk.X)
-        tk.Label(actions_card, text="  ⚡ Quick Actions", bg=self.colors['accent'],
-                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
+        tk.Frame(actions_card, bg=self.colors['accent'], height=32).pack(fill=tk.X)
+        tk.Label(actions_card, text="  Quick Actions", bg=self.colors['accent'],
+                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(4, 0), padx=8)
 
         actions_inner = ttk.Frame(actions_card, style='Pro.TFrame')
-        actions_inner.pack(fill=tk.X, padx=8, pady=8)
+        actions_inner.pack(fill=tk.X, padx=10, pady=10)
 
         actions = [
-            ("Quick Scan", self.quick_scan, '#8b6cf7'),
+            ("Quick Scan", self.quick_scan, '#7c5cfc'),
             ("Full Scan", self.full_scan, '#e05555'),
-            ("Speed Test", self.speed_test, '#00d4aa'),
+            ("Speed Test", self.speed_test, '#00c9a0'),
             ("Security Audit", self.security_audit, '#ff4757'),
             ("Export Report", self.export_report, '#4ecdc4'),
             ("Backup Data", self.backup_data, '#ffd93d'),
@@ -609,13 +468,13 @@ class NetworkAnalyzerPro:
         for i, (text, command, color) in enumerate(actions):
             if i % 2 == 0:
                 row_frame = ttk.Frame(actions_inner, style='Pro.TFrame')
-                row_frame.pack(fill=tk.X, pady=1)
+                row_frame.pack(fill=tk.X, pady=2)
             btn_frame = ttk.Frame(row_frame, style='Pro.TFrame')
             btn_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
             btn = tk.Button(btn_frame, text=text, command=command,
                            bg=color, fg='white',
-                           font=('Arial', 10, 'bold'), bd=0, padx=4, pady=7,
-                           activebackground=self._brighten(color, 30),
+                           font=('Arial', 10, 'bold'), bd=0, padx=6, pady=8,
+                           activebackground=self._brighten(color, 35),
                            activeforeground='white',
                            cursor='hand2',
                            highlightthickness=0,
@@ -628,16 +487,16 @@ class NetworkAnalyzerPro:
                                  highlightthickness=1, bd=0)
         activity_card.pack(fill=tk.BOTH, expand=True)
 
-        tk.Frame(activity_card, bg=self.colors['accent'], height=28).pack(fill=tk.X)
-        tk.Label(activity_card, text="  📋 Recent Activity", bg=self.colors['accent'],
-                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
+        tk.Frame(activity_card, bg=self.colors['accent'], height=32).pack(fill=tk.X)
+        tk.Label(activity_card, text="  Recent Activity", bg=self.colors['accent'],
+                 fg='white', font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(4, 0), padx=8)
 
         activity_inner = ttk.Frame(activity_card, style='Pro.TFrame')
         activity_inner.pack(fill=tk.BOTH, expand=True)
 
         self.activity_text = tk.Text(activity_inner, bg=self.colors['secondary'],
                                      fg=self.colors['text'], font=('Consolas', 9),
-                                     bd=0, highlightthickness=0, padx=10, pady=6,
+                                     bd=0, highlightthickness=0, padx=12, pady=8,
                                      wrap=tk.WORD)
         self.activity_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -674,8 +533,8 @@ class NetworkAnalyzerPro:
         modes = [("⚡ Quick", "quick"), ("🔬 Comprehensive", "comprehensive"), ("🔍 Deep", "deep")]
         for i, (label, value) in enumerate(modes):
             rb = ttk.Radiobutton(mode_frame, text=label, value=value,
-                                 variable=self.scan_mode, style='Pro.TRadiobutton')
-            rb.pack(side=tk.LEFT, padx=5)
+                                 variable=self.scan_mode, style='Pro.TButton')
+            rb.pack(side=tk.LEFT, padx=10)
 
         btn_frame = ttk.Frame(inner, style='Pro.TFrame')
         btn_frame.pack(fill=tk.X, pady=10)
@@ -691,7 +550,7 @@ class NetworkAnalyzerPro:
         progress_card = self._create_card(tab, "Progress", header_bg=self.colors['highlight'])
         progress_inner = ttk.Frame(progress_card, style='Pro.TFrame')
         progress_inner.pack(fill=tk.X, padx=12, pady=8)
-        self.scan_progress = ttk.Progressbar(progress_inner, mode='determinate',
+        self.scan_progress = ttk.Progressbar(progress_inner, length=600, mode='determinate',
                                               style='Pro.Horizontal.TProgressbar')
         self.scan_progress.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         self.scan_status = ttk.Label(progress_inner, text="Ready", style='Pro.TLabel',
@@ -703,14 +562,12 @@ class NetworkAnalyzerPro:
         result_inner = ttk.Frame(result_card, style='Pro.TFrame')
         result_inner.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        # Results Treeview
         columns = ('IP', 'Hostname', 'MAC', 'Vendor', 'Ports', 'Status')
         self.device_tree = ttk.Treeview(result_inner, columns=columns,
                                         show='headings', style='Pro.Treeview')
-        col_widths = {'IP': 140, 'Hostname': 160, 'MAC': 150, 'Vendor': 140, 'Ports': 100, 'Status': 90}
         for col in columns:
             self.device_tree.heading(col, text=col)
-            self.device_tree.column(col, width=col_widths[col])
+            self.device_tree.column(col, width=130)
 
         scrollbar = ttk.Scrollbar(result_inner, orient=tk.VERTICAL,
                                   command=self.device_tree.yview, style='Pro.Vertical.TScrollbar')
@@ -821,7 +678,7 @@ class NetworkAnalyzerPro:
         self.bandwidth_btn.pack(side=tk.LEFT, padx=3)
 
         # Bandwidth status inline
-        self.bandwidth_info = tk.Label(toolbar, text="⬇ 0 KB/s  ⬆ 0 KB/s",
+        self.bandwidth_info = tk.Label(toolbar, text="Down: 0 KB/s | Up: 0 KB/s",
                                        bg=self.colors['secondary'],
                                        fg=self.colors['info'],
                                        font=('Consolas', 10))
@@ -839,14 +696,15 @@ class NetworkAnalyzerPro:
                  font=('Arial', 11, 'bold'), anchor='w').pack(fill=tk.X, pady=(3, 0), padx=8)
 
         activity_inner = tk.Frame(activity_card, bg=self.colors['secondary'])
-        activity_inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=18)
+        activity_inner.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         self.monitor_display = tk.Text(activity_inner, bg=self.colors['secondary'],
                                        fg=self.colors['text'], font=('Consolas', 9),
                                        bd=0, highlightthickness=0, wrap=tk.WORD)
-        monitor_scrollbar = ttk.Scrollbar(activity_inner, orient=tk.VERTICAL,
+        monitor_scrollbar = tk.Scrollbar(activity_inner, orient=tk.VERTICAL,
                                          command=self.monitor_display.yview,
-                                         style='Pro.Vertical.TScrollbar')
+                                         bg=self.colors['accent2'],
+                                         troughcolor=self.colors['bg'])
         self.monitor_display.configure(yscrollcommand=monitor_scrollbar.set)
         self.monitor_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         monitor_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -857,14 +715,11 @@ class NetworkAnalyzerPro:
         self.monitor_display.insert(tk.END, "Press 'Bandwidth' to measure network throughput.\n\n")
         self.monitor_display.insert(tk.END, "Note: Some connection data may require elevated privileges.")
 
-        # Separator between panes
-        tk.Frame(tab, bg=self.colors['accent2'], height=1).pack(fill=tk.X, pady=(0, 0))
-
         # Bandwidth Graph Card
         graph_card = tk.Frame(tab, bg=self.colors['secondary'],
                               highlightbackground=self.colors['accent2'],
                               highlightthickness=1, bd=0)
-        graph_card.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+        graph_card.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
 
         tk.Frame(graph_card, bg=self.colors['accent'], height=28).pack(fill=tk.X)
         tk.Label(graph_card, text="  Bandwidth Graph (last 60s)",
@@ -960,8 +815,8 @@ class NetworkAnalyzerPro:
                   font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
         for label, value in [("Connect", "connect"), ("Listen", "listen")]:
             rb = ttk.Radiobutton(mode_frame, text=label, value=value,
-                                 variable=self.netcat_mode, style='Pro.TRadiobutton')
-            rb.pack(side=tk.LEFT, padx=5)
+                                 variable=self.netcat_mode, style='Pro.TButton')
+            rb.pack(side=tk.LEFT, padx=10)
 
         # Protocol selection
         proto_frame = ttk.Frame(inner, style='Pro.TFrame')
@@ -970,8 +825,8 @@ class NetworkAnalyzerPro:
                   font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
         for label, value in [("TCP", "tcp"), ("UDP", "udp")]:
             rb = ttk.Radiobutton(proto_frame, text=label, value=value,
-                                 variable=self.netcat_protocol, style='Pro.TRadiobutton')
-            rb.pack(side=tk.LEFT, padx=5)
+                                 variable=self.netcat_protocol, style='Pro.TButton')
+            rb.pack(side=tk.LEFT, padx=10)
 
         # SSL and options
         opt_frame = ttk.Frame(inner, style='Pro.TFrame')
@@ -1231,22 +1086,24 @@ class NetworkAnalyzerPro:
             local_ip = self.get_local_ip()
             gateway = self.get_gateway()
             device_count = len(self.device_tree.get_children()) if hasattr(self, 'device_tree') else 0
-            scapy_indicator = "✅ Available" if SCAPY_AVAILABLE else "❌ Not available"
-            scapy_color = self.colors['success'] if SCAPY_AVAILABLE else self.colors['danger']
 
-            if hasattr(self, 'stat_local_ip'):
-                self.stat_local_ip.config(text=local_ip)
-            if hasattr(self, 'stat_gateway_ip'):
-                self.stat_gateway_ip.config(text=gateway)
-            if hasattr(self, 'stat_gateway_host'):
-                gw_hostname = self.get_hostname(gateway) if gateway and gateway != 'Unknown' else '-'
-                self.stat_gateway_host.config(text=gw_hostname if gw_hostname != 'Unknown' else '-')
-            if hasattr(self, 'stat_devices'):
-                self.stat_devices.config(text=str(device_count))
-            if hasattr(self, 'stat_scapy'):
-                self.stat_scapy.config(text=scapy_indicator, fg=scapy_color)
-            if hasattr(self, 'stat_updated'):
-                self.stat_updated.config(text=datetime.now().strftime('%H:%M:%S'))
+            scapy_indicator = "✅ Available" if SCAPY_AVAILABLE else "❌ Not available"
+            summary = ""
+            summary += f"  Local IP     {local_ip}\n"
+            if gateway and gateway != 'Unknown':
+                gw_hostname = self.get_hostname(gateway)
+                summary += f"  Gateway      {gateway}\n"
+                if gw_hostname and gw_hostname != 'Unknown':
+                    summary += f"  GW Hostname  {gw_hostname}\n"
+            else:
+                summary += f"  Gateway      {gateway}\n"
+            summary += f"  Devices      {device_count}\n"
+            summary += f"  Scapy        {scapy_indicator}\n"
+            summary += f"  Updated      {datetime.now().strftime('%H:%M:%S')}\n"
+
+            if hasattr(self, 'summary_text'):
+                self.summary_text.delete(1.0, tk.END)
+                self.summary_text.insert(1.0, summary)
         except:
             pass
 
@@ -1259,21 +1116,20 @@ class NetworkAnalyzerPro:
             net = psutil.net_io_counters()
 
             cpu_bar = '█' * int(cpu / 5) + '░' * (20 - int(cpu / 5))
-            cpu_color = self.colors['success'] if cpu < 50 else self.colors['warning'] if cpu < 80 else self.colors['danger']
-            mem_str = f"{mem.percent}%   {mem.used // 1024 ** 3} / {mem.total // 1024 ** 3} GB"
-            disk_str = f"{disk.percent}%   {disk.used // 1024 ** 3} / {disk.total // 1024 ** 3} GB"
-            net_str = f"⬆ {net.bytes_sent // 1024 ** 2} MB   ⬇ {net.bytes_recv // 1024 ** 2} MB"
+            mem_gb = mem.used // 1024 ** 3
+            mem_total = mem.total // 1024 ** 3
+            disk_gb = disk.used // 1024 ** 3
+            disk_total = disk.total // 1024 ** 3
 
-            if hasattr(self, 'sys_cpu'):
-                self.sys_cpu.config(text=f"{cpu:.1f}%  {cpu_bar}", fg=cpu_color)
-            if hasattr(self, 'sys_memory'):
-                mem_color = self.colors['success'] if mem.percent < 50 else self.colors['warning'] if mem.percent < 80 else self.colors['danger']
-                self.sys_memory.config(text=mem_str, fg=mem_color)
-            if hasattr(self, 'sys_disk'):
-                disk_color = self.colors['success'] if disk.percent < 50 else self.colors['warning'] if disk.percent < 80 else self.colors['danger']
-                self.sys_disk.config(text=disk_str, fg=disk_color)
-            if hasattr(self, 'sys_net'):
-                self.sys_net.config(text=net_str)
+            status = ""
+            status += f"  CPU    {cpu:5.1f}%  {cpu_bar}\n"
+            status += f"  Memory {mem.percent:5.1f}%  {mem_gb}/{mem_total} GB\n"
+            status += f"  Disk   {disk.percent:5.1f}%  {disk_gb}/{disk_total} GB\n"
+            status += f"  Net    Sent {net.bytes_sent // 1024 ** 2} MB  Recv {net.bytes_recv // 1024 ** 2} MB\n"
+
+            if hasattr(self, 'sys_status'):
+                self.sys_status.delete(1.0, tk.END)
+                self.sys_status.insert(1.0, status)
         except:
             pass
 
@@ -2641,9 +2497,7 @@ class NetworkAnalyzerPro:
                     new_time = time.time()
                     down = (new_net.bytes_recv - old_net.bytes_recv) / (new_time - old_time) / 1024
                     up = (new_net.bytes_sent - old_net.bytes_sent) / (new_time - old_time) / 1024
-                    down_str = f"{down:.1f} KB/s" if down < 1024 else f"{down / 1024:.2f} MB/s"
-                    up_str = f"{up:.1f} KB/s" if up < 1024 else f"{up / 1024:.2f} MB/s"
-                    self.bandwidth_info.config(text=f"⬇ {down_str}  ⬆ {up_str}")
+                    self.bandwidth_info.config(text=f"Down: {down:.1f} KB/s | Up: {up:.1f} KB/s")
                     self.bandwidth_history.append((down, up))
                     self.root.after(0, self._update_bandwidth_graph)
                     old_net = new_net

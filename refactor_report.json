@@ -1,0 +1,21 @@
+{
+  "total_lines": 10,
+  "ast_valid": true,
+  "inventory": {
+    "imports": 1,
+    "classes": 0,
+    "methods": 0,
+    "functions": 0,
+    "global_assignments": 0
+  },
+  "class_details": {},
+  "thread_targets": [],
+  "timer_callbacks": [],
+  "scapy_operations": 0,
+  "subprocess_calls": 0,
+  "file_paths": [],
+  "json_dict_locations": [],
+  "widget_builders": [],
+  "circular_dependency_cycles": [],
+  "module_suggestions": {}
+}
